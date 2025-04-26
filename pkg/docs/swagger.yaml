@@ -1,0 +1,125 @@
+basePath: /
+definitions:
+  api.Response:
+    properties:
+      data: {}
+      duration:
+        type: string
+      endTime:
+        type: string
+      message:
+        type: string
+      startTime:
+        type: string
+      success:
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for demonstrating Go performance bottlenecks
+  title: Go Bottlenecks API
+  version: 1.0.0
+paths:
+  /api/concurrent:
+    get:
+      description: Demonstrates concurrent processing with goroutines
+      parameters:
+      - description: Number of items to process
+        in: query
+        name: count
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Concurrent Processing Demo
+      tags:
+      - performance
+  /api/health:
+    get:
+      description: Returns API health status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Health Check
+      tags:
+      - system
+  /api/leak:
+    get:
+      description: Demonstrates a goroutine leak (use with caution)
+      parameters:
+      - description: Number of items to process
+        in: query
+        name: count
+        type: integer
+      - description: Should create a leak
+        in: query
+        name: leak
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Goroutine Leak Demo
+      tags:
+      - performance
+  /api/pool:
+    get:
+      description: Demonstrates concurrent processing with a worker pool
+      parameters:
+      - description: Number of items to process
+        in: query
+        name: count
+        type: integer
+      - description: Number of workers
+        in: query
+        name: workers
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Worker Pool Demo
+      tags:
+      - performance
+  /api/search:
+    get:
+      description: Searching to keyword on vectorized db then populate it external
+        services
+      responses: {}
+      summary: Search Demo
+      tags:
+      - search
+  /api/sequential:
+    get:
+      description: Demonstrates sequential processing
+      parameters:
+      - description: Number of items to process
+        in: query
+        name: count
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Sequential Processing Demo
+      tags:
+      - performance
+swagger: "2.0"
