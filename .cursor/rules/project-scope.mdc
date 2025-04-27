@@ -1,0 +1,18 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Bu ne projesi?
+
+- Bu golang ile yazılmış bir poc. 
+- Amacım golang de bottlenect oluşturan noktaları göstermek.
+
+
+# Göstermek istediğim key noktalar
+- Sequantial code ile concurrent code arasındaki performans farkı
+- Goroutine lerde leak oluşması.
+- Real life bir example üzerinden gitmek.
+- Benchmark testleri ile micro ölçekte trace etmek.
+- Macro ölçekte test yapmak.

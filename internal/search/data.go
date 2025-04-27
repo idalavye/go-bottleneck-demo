@@ -1,13 +1,19 @@
 package search
 
-var productVectors = [][]float64{
-	{0.11, -0.43, 0.75, 0.01},
-	{0.15, -0.41, 0.70, 0.05},
-	{0.01, -0.49, 0.80, -0.02},
-}
+import (
+	"hash/fnv"
+)
 
-var productMetadata = []Product{
-	{ID: "product1", Name: "Nike Kırmızı Ayakkabı"},
-	{ID: "product2", Name: "Adidas Spor Ayakkabı"},
-	{ID: "product3", Name: "Puma Spor Bot"},
+func getEmbedding(text string) []float64 {
+	h := fnv.New64a()
+	h.Write([]byte(text))
+	hash := h.Sum64()
+
+	// Her arama terimi için aynı vektör, farklı terimler için farklı vektör üretir
+	return []float64{
+		float64(int64(hash>>0)&0xFFFF)/65536.0*2 - 1,  // -1 ile 1 arası
+		float64(int64(hash>>16)&0xFFFF)/65536.0*2 - 1, // -1 ile 1 arası
+		float64(int64(hash>>32)&0xFFFF)/65536.0*2 - 1, // -1 ile 1 arası
+		float64(int64(hash>>48)&0xFFFF)/65536.0*2 - 1, // -1 ile 1 arası
+	}
 }

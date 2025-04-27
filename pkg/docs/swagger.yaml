@@ -1,0 +1,65 @@
+basePath: /
+definitions:
+  api.Response:
+    properties:
+      data: {}
+      duration:
+        type: string
+      endTime:
+        type: string
+      message:
+        type: string
+      startTime:
+        type: string
+      success:
+        type: boolean
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for demonstrating Go performance bottlenecks
+  title: Go Bottlenecks API
+  version: 1.0.0
+paths:
+  /api/health:
+    get:
+      description: Returns API health status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Health Check
+      tags:
+      - system
+  /api/search:
+    get:
+      description: Searches the vectorized database with the given keyword and enriches
+        the results with external services
+      parameters:
+      - description: Keyword to search for
+        in: query
+        name: term
+        required: true
+        type: string
+      - description: 'Number of products to return (default: 10)'
+        in: query
+        name: itemCount
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/api.Response'
+      summary: Search Demo
+      tags:
+      - search
+swagger: "2.0"

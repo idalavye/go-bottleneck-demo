@@ -28,15 +28,6 @@ go run cmd/main.go
 
 Uygulama http://localhost:8080 adresinde çalışacaktır.
 
-## API Endpointleri
-
-| Endpoint | Açıklama |
-|----------|----------|
-| `/api/health` | API sağlık kontrolü |
-| `/api/sequential` | Ardışık işleme demonstrasyonu |
-| `/api/concurrent` | Eşzamanlı işleme demonstrasyonu |
-| `/api/pool` | Worker pool demonstrasyonu |
-| `/api/leak` | Goroutine bellek sızıntısı demonstrasyonu |
 
 ## Swagger Dokümantasyonu
 
