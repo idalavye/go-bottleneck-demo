@@ -44,7 +44,7 @@ func SearchProducts(text string, pageSize int) ([]ScoredProduct, float64) {
 		scoredProducts = scoredProducts[:pageSize]
 	}
 
-	return scoredProducts, ParallelRowSumWithWorkers(productVectors)
+	return scoredProducts, SumRowMajor(productVectors)
 }
 
 // Part 1
