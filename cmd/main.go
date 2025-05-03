@@ -23,6 +23,7 @@ import (
 )
 
 func main() {
+
 	f, err := os.Create("macro-trace.out")
 	if err != nil {
 		log.Fatal(err)
@@ -30,6 +31,11 @@ func main() {
 	if err := trace.Start(f); err != nil {
 		log.Fatal(err)
 	}
+
+	go func() {
+		log.Println("pprof started on :6060")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	log.Println("Starting Go-Bottlenecks demonstration")
 	fmt.Println("Welcome to Go performance bottlenecks demonstration")

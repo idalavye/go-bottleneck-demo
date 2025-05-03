@@ -75,3 +75,23 @@ func BenchmarkParallelRowSumWithWorkers(b *testing.B) {
 		_ = ParallelRowSumWithWorkers(productVectors)
 	}
 }
+
+/*
+goos: darwin
+goarch: arm64
+pkg: github.com/idagdelen/go-bottlenecks/internal/search
+BenchmarkSumWithRowSumsEscapeHeap-10    	    3388	    363285 ns/op	  802819 B/op	       1 allocs/op
+PASS
+*/
+
+/*
+GOGC=off go test -bench=BenchmarkSumWithRowSumsEscapeHeap -run=^$ ./internal/search -cpuprofile=cpu.prof -memprofile=mem.prof -trace=trace.out -cpu 1 -benchtime 3s
+go tool pprof -http=:8080 ./cpu.prof
+go tool pprof -http=:8080 ./mem.prof
+go tool trace trace.out
+*/
+func BenchmarkSumWithRowSumsEscapeHeap(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = SumWithRowSumsEscapeHeap(productVectors)
+	}
+}

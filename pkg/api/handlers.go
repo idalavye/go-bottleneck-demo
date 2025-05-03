@@ -38,7 +38,6 @@ func HandleSearch(w http.ResponseWriter, r *http.Request) {
 	// Prevent crash: recover from any panic in handler
 	defer func() {
 		if err := recover(); err != nil {
-			// Log the panic (in real app use logger)
 			println("Recovered from panic in HandleSearch:", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(Response{
@@ -59,12 +58,14 @@ func HandleSearch(w http.ResponseWriter, r *http.Request) {
 			parsedItemCount = 10 // Default value
 		}
 
-		products, totalSum := search.SearchProducts(searchTerm, parsedItemCount)
+		products, totalSum := search.SearchProductsHeapOptimized(searchTerm, parsedItemCount)
 
-		// Use enrichment and ad logic only if demoMode=on
-		withEnrichment := true
 		/* _, recommendedAdResp := enrichProductsWithDetailsAndAd(products, withEnrichment) */
-		enrichedProducts, recommendedAdResp := enrichProductsWithDetailsAndAd(products, withEnrichment)
+		enrichedProducts, recommendedAdResp := enrichProductsWithDetailsAndAdWorkerPool(products)
+
+		/* enrichCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		defer cancel()
+		enrichedProducts, recommendedAdResp := enrichProductsWithDetailsAndAdWorkerPoolWithCancel(enrichCtx, products) */
 
 		resp := Response{
 			Success: true,
@@ -116,12 +117,10 @@ func HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 
 // enrichProductsWithDetailsAndAd enriches products with details and optionally adds a recommended ad
 // If withEnrichment is false, returns empty enrichedProducts and nil recommendedAdResp
-func enrichProductsWithDetailsAndAd(products []search.ScoredProduct, withEnrichment bool) ([]EnrichedProduct, *EnrichedProduct) {
-	if !withEnrichment {
-		return nil, nil
-	}
+func enrichProductsWithDetailsAndAd(products []search.ScoredProduct) ([]EnrichedProduct, *EnrichedProduct) {
 	var enrichedProducts []EnrichedProduct
 	var idList []int
+
 	for _, p := range products {
 		idList = append(idList, p.ID)
 		prod, err := prodService.GetProductByID(p.ID)
@@ -157,86 +156,64 @@ func enrichProductsWithDetailsAndAd(products []search.ScoredProduct, withEnrichm
 	return enrichedProducts, recommendedAdResp
 }
 
-// enrichProductsWithDetailsAndAdParallel enriches products concurrently, intentionally causing memory inefficiency and potential goroutine leaks for demo purposes
-// This function demonstrates:
-// - Parallel enrichment with goroutines
-// - Excessive memory allocation
-// - Not cleaning up nil entries in maps
-// - Potential goroutine leaks
-//
-// To observe GC and STW pauses, run the app with:
-//
-//	GODEBUG=gctrace=1 go run ./cmd/main.go
-func enrichProductsWithDetailsAndAdParallel(products []search.ScoredProduct, withEnrichment bool) ([]EnrichedProduct, *EnrichedProduct) {
-	if !withEnrichment {
-		return nil, nil
+func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) ([]*EnrichedProduct, *EnrichedProduct) {
+	numWorkers := 8 // runtime.NumCPU() ile dinamik de alabilirsin
+	jobs := make(chan job, len(products))
+	results := make(chan result, len(products))
+
+	var enrichedProducts = make([]*EnrichedProduct, 0, len(products))
+	idList := make([]int, len(products))
+
+	// sync.Pool ile EnrichedProduct struct'ı tekrar kullan
+	enrichedProductPool := sync.Pool{
+		New: func() interface{} { return new(EnrichedProduct) },
 	}
 
-	type result struct {
-		idx  int
-		item *EnrichedProduct
-	}
-
-	var (
-		enrichedProducts = make([]EnrichedProduct, len(products))
-		idList           = make([]int, 0, len(products))
-		resultsCh        = make(chan result, len(products))
-		// Intentionally create a large map and do not clean up nil entries
-		/* memLeakMap = make(map[int]*EnrichedProduct, len(products)*10) */
-	)
-
-	// Start a goroutine for each product
-	for i, p := range products {
-		idList = append(idList, p.ID)
-		go func(idx int, prodID int, score float64) {
-			// Intentionally allocate a large slice (memory waste)
-			_ = make([]byte, 1024*1024*2) // 1MB per goroutine (was 1MB)
-
-			prod, err := prodService.GetProductByID(prodID)
+	// Worker fonksiyonu
+	worker := func() {
+		for j := range jobs {
+			prod, err := prodService.GetProductByID(j.prod.ID)
 			if err == nil && prod != nil {
-				stk, _ := stockService.GetStockByProductID(prodID)
-				item := &EnrichedProduct{
-					ID:          prod.ID,
-					Name:        prod.Name,
-					Description: prod.Description,
-					Price:       prod.FormatPrice(),
-					Score:       score,
-					Stock:       0,
-				}
+				stk, _ := stockService.GetStockByProductID(j.prod.ID)
+				item := enrichedProductPool.Get().(*EnrichedProduct)
+				item.ID = prod.ID
+				item.Name = prod.Name
+				item.Description = prod.Description
+				item.Price = prod.FormatPrice()
+				item.Score = j.prod.Score
+				item.Stock = 0
 				if stk != nil {
 					item.Stock = stk.Quantity
 				}
-				// Intentionally do not clean up nil entries in the map
-				/* memLeakMap[prodID] = item */
-				resultsCh <- result{idx: idx, item: item}
+				results <- result{idx: j.idx, item: item}
 			} else {
-				println("goroutine error", idx, err)
-				// Hatalı durumda da kanala nil gönder
-				/* resultsCh <- result{idx: idx, item: nil} */
+				results <- result{idx: j.idx, item: nil}
 			}
-		}(i, p.ID, p.Score)
-	}
-
-	// Collect results (some goroutines may leak and never send)
-	collected := 0
-	timeout := time.After(1 * time.Second)
-
-loop:
-	for collected < len(products) {
-		select {
-		case res := <-resultsCh:
-			if res.item != nil {
-				enrichedProducts[res.idx] = *res.item
-			}
-			collected++
-		case <-timeout:
-			// Timeout oldu, kalanları beklemeden çık
-			println("Timeout: not all goroutines responded")
-			break loop
 		}
 	}
 
-	// Get a recommended ad product using AdsService and the id list
+	// Worker'ları başlat
+	for w := 0; w < numWorkers; w++ {
+		go worker()
+	}
+
+	// İşleri gönder
+	for i, p := range products {
+		idList[i] = p.ID
+		jobs <- job{idx: i, prod: p}
+	}
+	close(jobs)
+
+	// Sonuçları topla
+	for i := 0; i < len(products); i++ {
+		res := <-results
+		if res.item != nil {
+			enrichedProducts = append(enrichedProducts, res.item)
+		}
+	}
+	close(results)
+
+	// Reklam ürünü
 	recommendedAd, _ := adsService.RecommendProductByIDs(idList)
 	var recommendedAdResp *EnrichedProduct
 	if recommendedAd != nil {
@@ -245,91 +222,101 @@ loop:
 			Name:        recommendedAd.Product.Name,
 			Description: recommendedAd.Product.Description,
 			Price:       recommendedAd.Product.FormatPrice(),
-			Score:       0, // Not relevant for ad
+			Score:       0,
 			Stock:       recommendedAd.Stock.Quantity,
 		}
 	}
 	return enrichedProducts, recommendedAdResp
 }
 
-// enrichProductsWithDetailsAndAdParallel enriches products concurrently, demonstrating how improper goroutine and memory management can cause leaks.
-// This version fixes goroutine and memory leaks using WaitGroup and context for timeout.
-func enrichProductsWithDetailsAndAdParallelImprovement(products []search.ScoredProduct, withEnrichment bool) ([]EnrichedProduct, *EnrichedProduct) {
-	if !withEnrichment {
-		return nil, nil
+// enrichProductsWithDetailsAndAdWorkerPoolWithCancel enriches products concurrently with cancellation support
+// Each worker and the main loop respect context cancellation and per-job timeout
+func enrichProductsWithDetailsAndAdWorkerPoolWithCancel(ctx context.Context, products []search.ScoredProduct) ([]*EnrichedProduct, *EnrichedProduct) {
+	numWorkers := 8 // You can use runtime.NumCPU() for dynamic worker count
+	jobs := make(chan job, len(products))
+	results := make(chan result, len(products))
+
+	var enrichedProducts = make([]*EnrichedProduct, 0, len(products))
+	idList := make([]int, len(products))
+
+	// Use sync.Pool to reuse EnrichedProduct structs
+	enrichedProductPool := sync.Pool{
+		New: func() interface{} { return new(EnrichedProduct) },
 	}
 
-	type result struct {
-		idx  int
-		item *EnrichedProduct
-	}
-
-	var (
-		enrichedProducts = make([]EnrichedProduct, len(products))
-		idList           = make([]int, 0, len(products))
-		resultsCh        = make(chan result, len(products))
-	)
-
-	// Use context for timeout to prevent goroutine leaks
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	var wg sync.WaitGroup
-
-	// Start a goroutine for each product
-	for i, p := range products {
-		idList = append(idList, p.ID)
-		wg.Add(1)
-		go func(ctx context.Context, idx int, prodID int, score float64) {
-			defer wg.Done()
+	worker := func() {
+		for {
 			select {
 			case <-ctx.Done():
-				// Context cancelled, do not proceed
+				// Context cancelled, worker exits
 				return
-			default:
-				// continue
-			}
-
-			prod, err := prodService.GetProductByID(prodID)
-			if err == nil && prod != nil {
-				stk, _ := stockService.GetStockByProductID(prodID)
-				item := &EnrichedProduct{
-					ID:          prod.ID,
-					Name:        prod.Name,
-					Description: prod.Description,
-					Price:       prod.FormatPrice(),
-					Score:       score,
-					Stock:       0,
+			case j, ok := <-jobs:
+				if !ok {
+					return
 				}
-				if stk != nil {
-					item.Stock = stk.Quantity
+				// Per-job timeout (e.g. 100ms)
+				jobCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+				ch := make(chan *EnrichedProduct, 1)
+
+				go func() {
+					prod, err := prodService.GetProductByID(j.prod.ID)
+					if err == nil && prod != nil {
+						stk, _ := stockService.GetStockByProductID(j.prod.ID)
+						item := enrichedProductPool.Get().(*EnrichedProduct)
+						item.ID = prod.ID
+						item.Name = prod.Name
+						item.Description = prod.Description
+						item.Price = prod.FormatPrice()
+						item.Score = j.prod.Score
+						item.Stock = 0
+						if stk != nil {
+							item.Stock = stk.Quantity
+						}
+						ch <- item
+						return
+					}
+					ch <- nil
+				}()
+
+				select {
+				case item := <-ch:
+					results <- result{idx: j.idx, item: item}
+				case <-jobCtx.Done():
+					// Timeout
+					results <- result{idx: j.idx, item: nil}
 				}
-				resultsCh <- result{idx: idx, item: item}
-			} else {
-				println("goroutine error", idx, err)
-				resultsCh <- result{idx: idx, item: nil}
+				cancel()
 			}
-		}(ctx, i, p.ID, p.Score)
-	}
-
-	// Goroutine to close the channel after all workers are done
-	go func() {
-		wg.Wait()
-		close(resultsCh)
-	}()
-
-	collected := 0
-	for res := range resultsCh {
-		if res.item != nil {
-			enrichedProducts[res.idx] = *res.item
-		}
-		collected++
-		if collected == len(products) {
-			break
 		}
 	}
 
-	// Get a recommended ad product using AdsService and the id list
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		go worker()
+	}
+
+	// Send jobs
+	for i, p := range products {
+		idList[i] = p.ID
+		jobs <- job{idx: i, prod: p}
+	}
+	close(jobs)
+
+	// Collect results
+	for i := 0; i < len(products); i++ {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, enrichment stopped
+			return enrichedProducts, nil
+		case res := <-results:
+			if res.item != nil {
+				enrichedProducts = append(enrichedProducts, res.item)
+			}
+		}
+	}
+	close(results)
+
+	// Recommended ad (can be wrapped with timeout if needed)
 	recommendedAd, _ := adsService.RecommendProductByIDs(idList)
 	var recommendedAdResp *EnrichedProduct
 	if recommendedAd != nil {
@@ -338,9 +325,18 @@ func enrichProductsWithDetailsAndAdParallelImprovement(products []search.ScoredP
 			Name:        recommendedAd.Product.Name,
 			Description: recommendedAd.Product.Description,
 			Price:       recommendedAd.Product.FormatPrice(),
-			Score:       0, // Not relevant for ad
+			Score:       0,
 			Stock:       recommendedAd.Stock.Quantity,
 		}
 	}
 	return enrichedProducts, recommendedAdResp
+}
+
+type job struct {
+	idx  int
+	prod search.ScoredProduct
+}
+type result struct {
+	idx  int
+	item *EnrichedProduct
 }
