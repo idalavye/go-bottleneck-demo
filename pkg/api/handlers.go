@@ -156,6 +156,11 @@ func enrichProductsWithDetailsAndAd(products []search.ScoredProduct) ([]Enriched
 	return enrichedProducts, recommendedAdResp
 }
 
+// sync.Pool for EnrichedProduct reuse across requests
+var enrichedProductPool = sync.Pool{
+	New: func() interface{} { return new(EnrichedProduct) },
+}
+
 func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) ([]*EnrichedProduct, *EnrichedProduct) {
 	numWorkers := 8 // runtime.NumCPU() ile dinamik de alabilirsin
 	jobs := make(chan job, len(products))
@@ -163,11 +168,6 @@ func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) (
 
 	var enrichedProducts = make([]*EnrichedProduct, 0, len(products))
 	idList := make([]int, len(products))
-
-	// sync.Pool ile EnrichedProduct struct'ı tekrar kullan
-	enrichedProductPool := sync.Pool{
-		New: func() interface{} { return new(EnrichedProduct) },
-	}
 
 	// Worker fonksiyonu
 	worker := func() {
@@ -226,6 +226,12 @@ func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) (
 			Stock:       recommendedAd.Stock.Quantity,
 		}
 	}
+
+	// Return EnrichedProduct structs to sync.Pool after use
+	for _, item := range enrichedProducts {
+		enrichedProductPool.Put(item)
+	}
+
 	return enrichedProducts, recommendedAdResp
 }
 
@@ -240,9 +246,9 @@ func enrichProductsWithDetailsAndAdWorkerPoolWithCancel(ctx context.Context, pro
 	idList := make([]int, len(products))
 
 	// Use sync.Pool to reuse EnrichedProduct structs
-	enrichedProductPool := sync.Pool{
-		New: func() interface{} { return new(EnrichedProduct) },
-	}
+	// enrichedProductPool := sync.Pool{
+	// 	New: func() interface{} { return new(EnrichedProduct) },
+	// }
 
 	worker := func() {
 		for {
