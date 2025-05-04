@@ -1,97 +1,89 @@
 {
-    "swagger": "2.0",
-    "info": {
-        "description": "API for demonstrating Go performance bottlenecks",
-        "title": "Go Bottlenecks API",
-        "contact": {},
-        "version": "1.0.0"
-    },
-    "host": "localhost:8080",
-    "basePath": "/",
-    "paths": {
-        "/api/health": {
-            "get": {
-                "description": "Returns API health status",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "system"
-                ],
-                "summary": "Health Check",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.Response"
-                        }
-                    }
-                }
+  "swagger": "2.0",
+  "info": {
+    "description": "API for demonstrating Go performance bottlenecks",
+    "title": "Go Bottlenecks API",
+    "contact": {},
+    "version": "1.0.0"
+  },
+  "host": "localhost:8080",
+  "basePath": "/",
+  "paths": {
+    "/api/health": {
+      "get": {
+        "description": "Returns API health status",
+        "produces": ["application/json"],
+        "tags": ["system"],
+        "summary": "Health Check",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.Response"
             }
-        },
-        "/api/search": {
-            "get": {
-                "description": "Searches the vectorized database with the given keyword and enriches the results with external services",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "search"
-                ],
-                "summary": "Search Demo",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Keyword to search for",
-                        "name": "term",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Number of products to return (default: 10)",
-                        "name": "itemCount",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/api.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/api.Response"
-                        }
-                    }
-                }
-            }
+          }
         }
+      }
     },
-    "definitions": {
-        "api.Response": {
-            "type": "object",
-            "properties": {
-                "data": {},
-                "duration": {
-                    "type": "string"
-                },
-                "endTime": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "startTime": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                }
+    "/api/search": {
+      "get": {
+        "description": "Searches the vectorized database with the given keyword and enriches the results with external services",
+        "produces": ["application/json"],
+        "tags": ["search"],
+        "summary": "Search Demo",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Keyword to search for",
+            "name": "term",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "integer",
+            "description": "Number of products to return (default: 10)",
+            "name": "itemCount",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/api.Response"
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/api.Response"
+            }
+          }
         }
+      }
     }
+  },
+  "definitions": {
+    "api.Response": {
+      "type": "object",
+      "properties": {
+        "data": {},
+        "duration": {
+          "type": "string"
+        },
+        "endTime": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "string"
+        },
+        "success": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
 }
