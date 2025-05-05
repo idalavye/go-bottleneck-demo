@@ -68,7 +68,7 @@ func BenchmarkWorkerPoolRowBasedSum_16Workers(b *testing.B) {
 }
 
 /*
-go test -bench=BenchmarkWorkerPoolRowBasedSumNoLock_1Worker -run=^$ ./pkg/example/example2 -memprofile=mem.prof -trace=trace.out -cpu 10 -benchtime 3s
+go test -bench=BenchmarkWorkerPoolRowBasedSumNoLock_8Workers -run=^$ ./pkg/example/example2 -memprofile=mem.prof -trace=trace.out -cpu 10 -benchtime 3s
 go tool pprof ./cpu.prof
 go tool trace trace.out
 */

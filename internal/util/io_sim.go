@@ -26,3 +26,21 @@ func SimulateError(probability float64, errMsg string) error {
 	}
 	return nil
 }
+
+// Fast dot product for []float64 slices (manual, not SIMD)
+// If you want to use SIMD, you can use github.com/minio/simd but it only supports float32.
+func FastDot(a, b []float64) float64 {
+	if len(a) != len(b) {
+		panic("FastDot: slice lengths do not match")
+	}
+	var sum float64
+	for i := 0; i < len(a); i++ {
+		sum += a[i] * b[i]
+	}
+	return sum
+}
+
+// Example for SIMD usage (float32 only, requires github.com/minio/simd)
+// func FastDotSIMD(a, b []float32) float32 {
+// 	return simd.Dot32(a, b)
+// }

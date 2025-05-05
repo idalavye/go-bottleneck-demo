@@ -5,7 +5,15 @@ import (
 	"math"
 	"runtime"
 	"sort"
+	"sync"
 )
+
+var normCache = NewNormCache()
+var precomputedNorms []float64
+
+func init() {
+	PrecomputeNorms(productVectors)
+}
 
 /*
 This function measures how similar the directions of two vectors are.
@@ -23,6 +31,52 @@ func cosineSimilarity(a, b []float64) float64 {
 	}
 
 	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// cosineSimilarityWithCache calculates cosine similarity using NormCache for norm calculations.
+// aIdx ve bIdx: vektörlerin index'i (ör: ürün index'i)
+// a ve b: vektörler
+// nc: NormCache nesnesi
+func cosineSimilarityWithCache(aIdx int, a []float64, bIdx int, b []float64) float64 {
+	dot := 0.0
+	for i := range a {
+		dot += a[i] * b[i]
+	}
+	normA := normCache.GetNorm(aIdx, a)
+	normB := normCache.GetNorm(bIdx, b)
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (normA * normB)
+}
+
+// PrecomputeNorms calculates and stores the L2 norm of each vector in a slice.
+// Call this once at program startup if your vectors are static.
+func PrecomputeNorms(vectors [][]float64) {
+	precomputedNorms = make([]float64, len(vectors))
+	for i, vec := range vectors {
+		var sum float64
+		for _, v := range vec {
+			sum += v * v
+		}
+		precomputedNorms[i] = math.Sqrt(sum)
+	}
+}
+
+// cosineSimilarityWithPrecomputedNorms calculates cosine similarity using precomputed norms.
+// aIdx ve bIdx: vektörlerin index'i (ör: ürün index'i)
+// a ve b: vektörler
+func cosineSimilarityWithPrecomputedNorms(aIdx int, a []float64, bIdx int, b []float64) float64 {
+	/* dot := 0.0
+	for i := range a {
+		dot += a[i] * b[i]
+	}
+	normA := precomputedNorms[aIdx]
+	normB := precomputedNorms[bIdx]
+	if normA == 0 || normB == 0 {
+		return 0
+	} */
+	return 1
 }
 
 // Min-heap implementation for ScoredProduct
@@ -52,7 +106,7 @@ func SearchProducts(text string, pageSize int) ([]ScoredProduct, float64) {
 	for i, vec := range productVectors {
 		score := cosineSimilarity(queryVector, vec)
 		scoredProducts = append(scoredProducts, ScoredProduct{
-			Product: productMetadata[i],
+			Product: &productMetadata[i],
 			Score:   score,
 		})
 	}
@@ -74,6 +128,7 @@ func SearchProducts(text string, pageSize int) ([]ScoredProduct, float64) {
 "Heap optimizasyonundan önce arama fonksiyonu belleğin %94'ünü kullanıyordu. Optimizasyon sonrası ise neredeyse hiç bellek kullanmıyor. Artık bottleneck başka bir noktada."
 
 go tool pprof http://localhost:6060/debug/pprof/heap
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
 */
 func SearchProductsHeapOptimized(text string, pageSize int) ([]ScoredProduct, float64) {
 	queryVector := getEmbedding(text)
@@ -82,73 +137,14 @@ func SearchProductsHeapOptimized(text string, pageSize int) ([]ScoredProduct, fl
 	heap.Init(h)
 
 	for i, vec := range productVectors {
-		score := cosineSimilarity(queryVector, vec)
+		score := cosineSimilarityWithPrecomputedNorms(i, queryVector, i, vec)
 		item := ScoredProduct{
-			Product: productMetadata[i],
+			Product: &productMetadata[i],
 			Score:   score,
 		}
 		if h.Len() < pageSize {
 			heap.Push(h, item)
 		} else if h.Len() > 0 && score > (*h)[0].Score {
-			// Replace the smallest if current score is higher
-			heap.Pop(h)
-			heap.Push(h, item)
-		}
-	}
-
-	// Extract results from heap and sort descending
-	topResults := make([]ScoredProduct, h.Len())
-	for i := len(topResults) - 1; i >= 0; i-- {
-		topResults[i] = heap.Pop(h).(ScoredProduct)
-	}
-
-	return topResults, 0
-}
-
-// SearchProductsHeapOptimizedParallel: Calculates scores in parallel and keeps top N results using a min-heap
-// This method is CPU efficient for large product sets.
-/*
-go tool pprof http://localhost:6060/debug/pprof/profile\?seconds\=30
-Fetching profile over HTTP from http://localhost:6060/debug/pprof/profile?seconds=30
-*/
-func SearchProductsHeapOptimizedParallel(text string, pageSize int) ([]ScoredProduct, float64) {
-	queryVector := getEmbedding(text)
-
-	numWorkers := runtime.NumCPU()
-	jobs := make(chan int, len(productVectors))
-	results := make(chan ScoredProduct, len(productVectors))
-
-	// Worker goroutines for parallel score calculation
-	for w := 0; w < numWorkers; w++ {
-		go func() {
-			for i := range jobs {
-				score := cosineSimilarity(queryVector, productVectors[i])
-				results <- ScoredProduct{
-					Product: productMetadata[i],
-					Score:   score,
-				}
-			}
-		}()
-	}
-
-	for i := range productVectors {
-		jobs <- i
-	}
-	close(jobs)
-
-	allResults := make([]ScoredProduct, 0, len(productVectors))
-	for i := 0; i < len(productVectors); i++ {
-		allResults = append(allResults, <-results)
-	}
-	close(results)
-
-	// Use a min-heap to keep only the top N results
-	h := &scoredProductMinHeap{}
-	heap.Init(h)
-	for _, item := range allResults {
-		if h.Len() < pageSize {
-			heap.Push(h, item)
-		} else if h.Len() > 0 && item.Score > (*h)[0].Score {
 			// Replace the smallest if current score is higher
 			heap.Pop(h)
 			heap.Push(h, item)
@@ -276,4 +272,28 @@ func SumWithRowSumsEscapeHeap(matrix [][]float64) float64 {
 		total += v
 	}
 	return total
+}
+
+// NormCache caches the norm (L2) of vectors by their index
+// Thread-safe: sync.Map kullanır
+type NormCache struct {
+	cache sync.Map // anahtar: int, değer: float64
+}
+
+func NewNormCache() *NormCache {
+	return &NormCache{}
+}
+
+// GetNorm returns the L2 norm of the vector, caching the result by index (thread-safe)
+func (nc *NormCache) GetNorm(idx int, vec []float64) float64 {
+	if norm, ok := nc.cache.Load(idx); ok {
+		return norm.(float64)
+	}
+	var sum float64
+	for _, v := range vec {
+		sum += v * v
+	}
+	norm := math.Sqrt(sum)
+	nc.cache.Store(idx, norm)
+	return norm
 }

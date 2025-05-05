@@ -6,6 +6,6 @@ type Product struct {
 }
 
 type ScoredProduct struct {
-	Product
+	*Product
 	Score float64 `json:"score"`
 }

@@ -1,9 +1,5 @@
 package example1
 
-func Example1() {
-
-}
-
 // Row-based traversal: iterate row by row
 func RowBasedSum(matrix [][]int) int {
 	sum := 0
