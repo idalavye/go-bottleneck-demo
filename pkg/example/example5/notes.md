@@ -39,9 +39,6 @@ func BenchmarkDoWorkBuffered(b *testing.B) {
 		}
 		cancel()
 	}
-	time.Sleep(100 * time.Millisecond)
-	after := runtime.NumGoroutine()
-	fmt.Println("\n\nGoroutine sayısı (before):", before)
-	fmt.Println("Goroutine sayısı (after):", after)
+
 }
 ```

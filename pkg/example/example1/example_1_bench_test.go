@@ -18,7 +18,7 @@ func generateMatrix(rows, cols int) [][]int {
 }
 
 func BenchmarkRowBasedSum(b *testing.B) {
-	matrix := generateMatrix(1000, 1000)
+	matrix := generateMatrix(100, 10)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		RowBasedSum(matrix)
@@ -26,7 +26,7 @@ func BenchmarkRowBasedSum(b *testing.B) {
 }
 
 func BenchmarkColumnBasedSum(b *testing.B) {
-	matrix := generateMatrix(1000, 1000)
+	matrix := generateMatrix(100, 10)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ColumnBasedSum(matrix)

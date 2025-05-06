@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	userCount = 10_000
+	userCount = 10
 )
 
 // User struct simulates a real-life entity
@@ -29,7 +29,7 @@ func GenerateUsersValue(n int) []User {
 			Score: rand.Intn(100),
 		}
 	}
-	return users // Value returned, usually stays on stack if not escaping
+	return users
 }
 
 // Pointer semantic factory
@@ -47,14 +47,8 @@ func GenerateUsersPointer(n int) *[]User {
 
 // Sums scores for value slice
 func SumScoresValue() int {
-	users := make([]User, userCount)
-	for i := range users {
-		users[i] = User{
-			ID:    i,
-			Name:  "User",
-			Score: rand.Intn(100),
-		}
-	}
+	users := GenerateUsersValue(userCount)
+
 	sum := 0
 	for _, u := range users {
 		sum += u.Score

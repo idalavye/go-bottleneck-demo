@@ -1,5 +1,6 @@
 Cases
 
+- heap vs stack
 - hem pass by value hemde pass by pointer 'da da heap kaçmasına rağmen pass by pointer çok yavaş kalıyor? why?
 - Peki random ürettiğim data sayısını 10_000 yaptığım zaman nede pass by reference ile pass by value arasındaki fark azalıyor?
 

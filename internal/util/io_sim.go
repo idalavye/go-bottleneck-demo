@@ -44,3 +44,13 @@ func FastDot(a, b []float64) float64 {
 // func FastDotSIMD(a, b []float32) float32 {
 // 	return simd.Dot32(a, b)
 // }
+
+// SimulateCPUBoundFor simulates a CPU-bound workload for the given duration (in milliseconds).
+func SimulateCPUBoundFor(ms int) {
+	end := time.Now().Add(time.Duration(ms) * time.Millisecond)
+	var x float64 = 1.0001
+	for time.Now().Before(end) {
+		x = x * 1.0001
+		x = x / 1.0001
+	}
+}

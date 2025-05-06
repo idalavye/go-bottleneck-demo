@@ -23,7 +23,9 @@ import (
 )
 
 func main() {
-
+	/*
+		Create a trace file
+	*/
 	f, err := os.Create("macro-trace.out")
 	if err != nil {
 		log.Fatal(err)
@@ -32,6 +34,9 @@ func main() {
 		log.Fatal(err)
 	}
 
+	/*
+		Start pprof server
+	*/
 	go func() {
 		log.Println("pprof started on :6060")
 		log.Println(http.ListenAndServe("localhost:6060", nil))
@@ -42,38 +47,53 @@ func main() {
 
 	r := chi.NewRouter()
 
-	// Middleware
+	/*
+		Middleware
+	*/
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
-	// Routes
+	/*
+		Routes
+	*/
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/swagger/index.html", http.StatusMovedPermanently)
 	})
 
-	// Serve Swagger UI using http-swagger package
+	/*
+		Serve Swagger UI using http-swagger package
+	*/
 	r.Get("/swagger/*", httpSwagger.Handler(
 		httpSwagger.URL("/swagger.json"),
 	))
 
-	// Serve swagger.json directly from pkg/docs
+	/*
+		Serve swagger.json directly from pkg/docs
+	*/
 	r.Get("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "pkg/docs/swagger.json")
 	})
 
-	// API routes
+	/*
+		API routes
+	*/
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", api.HandleHealthCheck)
 		r.Get("/search", api.HandleSearch)
 	})
 
+	/*
+		Create a new HTTP server
+	*/
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: r,
 	}
 
-	// Graceful shutdown için kanal oluştur
+	/*
+		Graceful shutdown
+	*/
 	idleConnsClosed := make(chan struct{})
 	go func() {
 		c := make(chan os.Signal, 1)
@@ -90,10 +110,16 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
+	/*
+		Start the server
+	*/
 	log.Println("Server starting on http://localhost:8080")
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("ListenAndServe(): %v", err)
 	}
 
+	/*
+		Wait for the server to shut down
+	*/
 	<-idleConnsClosed
 }

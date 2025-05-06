@@ -64,7 +64,6 @@ func enrichProductsWithDetailsAndAdIndexBased(products []search.ScoredProduct) (
 	results := make([]*EnrichedProduct, len(products))
 	idList := make([]int, len(products))
 
-	// Reklam ürünü için kanal ve goroutine
 	recommendedAdCh := make(chan *ads.RecommendedProduct, 1)
 	go func(ids []int) {
 		recommendedAd, _ := adsService.RecommendProductByIDs(ids)
@@ -142,4 +141,11 @@ func enrichProductsWithDetailsAndAdIndexBased(products []search.ScoredProduct) (
 	}
 	return finalResults, recommendedAdResp
 }
+```
+
+```
+Neden Bu Kadar Fark Var?
+Worker pool yaklaşımı, CPU-bound işler için idealdir. Çünkü CPU sayısı kadar worker ile en verimli şekilde işlem yapılır.
+Goroutine başına iş yaklaşımı, IO-bound işler için daha hızlıdır. Çünkü bekleyen çok sayıda iş varken, Go runtime bunları verimli şekilde planlar ve bekleyenler varken diğerlerini çalıştırır.
+Senin örneğinde, ürün ve stok servisleri muhtemelen IO-bound (ör: sleep, network, vs.) olduğu için, binlerce goroutine açmak çok daha hızlı sonuç veriyor.
 ```

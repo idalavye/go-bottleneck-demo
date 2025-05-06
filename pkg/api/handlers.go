@@ -34,21 +34,10 @@ var adsService = ads.NewAdsService(prodService, stockService)
 // @Failure 400 {object} Response
 // @Router /api/search [get]
 func HandleSearch(w http.ResponseWriter, r *http.Request) {
-	// Prevent crash: recover from any panic in handler
-	defer func() {
-		if err := recover(); err != nil {
-			println("Recovered from panic in HandleSearch:", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(Response{
-				Success: false,
-				Message: "Internal server error (panic)",
-			})
-		}
-	}()
-
 	ctx, task := trace.NewTask(r.Context(), "HandleSearch")
 	defer task.End()
-	trace.WithRegion(ctx, "HandleSearch-Request", func() {
+
+	TraceRegion(ctx, "HandleSearch-Request", func() {
 		searchTerm := r.URL.Query().Get("term")
 		itemCount := r.URL.Query().Get("itemCount")
 
@@ -57,14 +46,20 @@ func HandleSearch(w http.ResponseWriter, r *http.Request) {
 			parsedItemCount = 10 // Default value
 		}
 
-		products, totalSum := search.SearchProductsHeapOptimized(searchTerm, parsedItemCount)
+		searchRes := TraceRegionWithResult(ctx, "SearchProducts-Region", func() searchResult {
+			products, totalSum := search.SearchProductsHeapOptimized(searchTerm, parsedItemCount)
+			return searchResult{products: products, totalSum: totalSum}
+		})
+		products := searchRes.products
+		totalSum := searchRes.totalSum
 
-		/* _, recommendedAdResp := enrichProductsWithDetailsAndAd(products, withEnrichment) */
-		enrichedProducts, recommendedAdResp := enrichProductsWithDetailsAndAdIndexBased(products)
+		result := TraceRegionWithResult(ctx, "EnrichProducts-Region", func() enrichResult {
+			eps, ad := enrichProductsWithDetailsAndAdWorkerPool(products)
+			return enrichResult{enrichedProducts: eps, recommendedAdResp: ad}
+		})
 
-		/* enrichCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-		defer cancel()
-		enrichedProducts, recommendedAdResp := enrichProductsWithDetailsAndAdWorkerPoolWithCancel(enrichCtx, products) */
+		enrichedProducts := result.enrichedProducts
+		recommendedAdResp := result.recommendedAdResp
 
 		resp := Response{
 			Success: true,
@@ -160,15 +155,14 @@ var enrichedProductPool = sync.Pool{
 	New: func() interface{} { return new(EnrichedProduct) },
 }
 
-func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) ([]*EnrichedProduct, *EnrichedProduct) {
-	numWorkers := 8 // runtime.NumCPU() ile dinamik de alabilirsin
+func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) ([]EnrichedProduct, *EnrichedProduct) {
+	numWorkers := 10
 	jobs := make(chan job, len(products))
 	results := make(chan result, len(products))
 
-	var enrichedProducts = make([]*EnrichedProduct, 0, len(products))
+	var enrichedProducts = make([]EnrichedProduct, 0, len(products))
 	idList := make([]int, len(products))
 
-	// Worker fonksiyonu
 	worker := func() {
 		for j := range jobs {
 			prod, err := prodService.GetProductByID(j.prod.ID)
@@ -191,28 +185,24 @@ func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) (
 		}
 	}
 
-	// Worker'ları başlat
 	for w := 0; w < numWorkers; w++ {
 		go worker()
 	}
 
-	// İşleri gönder
 	for i, p := range products {
 		idList[i] = p.ID
 		jobs <- job{idx: i, prod: p}
 	}
 	close(jobs)
 
-	// Sonuçları topla
 	for i := 0; i < len(products); i++ {
 		res := <-results
 		if res.item != nil {
-			enrichedProducts = append(enrichedProducts, res.item)
+			enrichedProducts = append(enrichedProducts, *res.item)
 		}
 	}
 	close(results)
 
-	// Reklam ürünü
 	recommendedAd, _ := adsService.RecommendProductByIDs(idList)
 	var recommendedAdResp *EnrichedProduct
 	if recommendedAd != nil {
@@ -228,27 +218,69 @@ func enrichProductsWithDetailsAndAdWorkerPool(products []search.ScoredProduct) (
 	return enrichedProducts, recommendedAdResp
 }
 
-type job struct {
-	idx  int
-	prod search.ScoredProduct
-}
-type result struct {
-	idx  int
-	item *EnrichedProduct
-}
-
-// enrichProductsWithDetailsAndAdIndexBased enriches products concurrently, each goroutine writes to its own index, then nils are cleaned up
-func enrichProductsWithDetailsAndAdIndexBased(products []search.ScoredProduct) ([]*EnrichedProduct, *EnrichedProduct) {
+func enrichProductsWithDetailsParallelAndIndexBased(products []search.ScoredProduct) ([]EnrichedProduct, *EnrichedProduct) {
 	var wg sync.WaitGroup
 	results := make([]*EnrichedProduct, len(products))
 	idList := make([]int, len(products))
 
-	// Reklam ürünü için kanal ve goroutine
+	for i, p := range products {
+		idList[i] = p.ID
+		wg.Add(1)
+		go func(i int, p search.ScoredProduct) {
+			defer wg.Done()
+
+			prod, err := prodService.GetProductByID(p.ID)
+			if err == nil && prod != nil {
+				stk, _ := stockService.GetStockByProductID(p.ID)
+				item := enrichedProductPool.Get().(*EnrichedProduct)
+				item.ID = prod.ID
+				item.Name = prod.Name
+				item.Description = prod.Description
+				item.Price = prod.FormatPrice()
+				item.Score = p.Score
+				item.Stock = 0
+				if stk != nil {
+					item.Stock = stk.Quantity
+				}
+				results[i] = item
+			}
+		}(i, p)
+	}
+	wg.Wait()
+
+	finalResults := make([]EnrichedProduct, 0, len(products))
+	for _, item := range results {
+		if item != nil {
+			finalResults = append(finalResults, *item)
+		}
+	}
+
+	recommendedAd, _ := adsService.RecommendProductByIDs(idList)
+	var recommendedAdResp *EnrichedProduct
+	if recommendedAd != nil {
+		recommendedAdResp = &EnrichedProduct{
+			ID:          recommendedAd.Product.ID,
+			Name:        recommendedAd.Product.Name,
+			Description: recommendedAd.Product.Description,
+			Price:       recommendedAd.Product.FormatPrice(),
+			Score:       0,
+			Stock:       recommendedAd.Stock.Quantity,
+		}
+	}
+	return finalResults, recommendedAdResp
+}
+
+// enrichProductsWithDetailsAndAdIndexBased enriches products concurrently, each goroutine writes to its own index, then nils are cleaned up
+func enrichProductsWithDetailsParallelAndIndexBased_v2(products []search.ScoredProduct) ([]EnrichedProduct, *EnrichedProduct) {
+	var wg sync.WaitGroup
+	results := make([]*EnrichedProduct, len(products))
+	idList := make([]int, len(products))
+
 	recommendedAdCh := make(chan *ads.RecommendedProduct, 1)
 	go func(ids []int) {
 		recommendedAd, _ := adsService.RecommendProductByIDs(ids)
 		recommendedAdCh <- recommendedAd
-	}(func() []int { // idList henüz dolmadığı için kopyasını gönderiyoruz
+	}(func() []int {
 		ids := make([]int, len(products))
 		for i, p := range products {
 			ids[i] = p.ID
@@ -259,26 +291,28 @@ func enrichProductsWithDetailsAndAdIndexBased(products []search.ScoredProduct) (
 	for i, p := range products {
 		idList[i] = p.ID
 		wg.Add(1)
+
 		go func(i int, p search.ScoredProduct) {
 			defer wg.Done()
 
 			var prod *product.Product
 			var stk *stock.Stock
 			var prodErr error
-			var stockWg sync.WaitGroup
+			/* var stockWg sync.WaitGroup */
 
-			stockWg.Add(2)
+			prod, prodErr = prodService.GetProductByID(p.ID)
+			stk, _ = stockService.GetStockByProductID(p.ID)
+
+			/* 	stockWg.Add(2)
 			// Product goroutine
 			go func() {
 				defer stockWg.Done()
-				prod, prodErr = prodService.GetProductByID(p.ID)
 			}()
 			// Stock goroutine
 			go func() {
 				defer stockWg.Done()
-				stk, _ = stockService.GetStockByProductID(p.ID)
 			}()
-			stockWg.Wait()
+			stockWg.Wait() */
 
 			if prodErr == nil && prod != nil {
 				item := enrichedProductPool.Get().(*EnrichedProduct)
@@ -297,15 +331,13 @@ func enrichProductsWithDetailsAndAdIndexBased(products []search.ScoredProduct) (
 	}
 	wg.Wait()
 
-	// Temizlik: nil olanları çıkar
-	finalResults := make([]*EnrichedProduct, 0, len(products))
+	finalResults := make([]EnrichedProduct, 0, len(products))
 	for _, item := range results {
 		if item != nil {
-			finalResults = append(finalResults, item)
+			finalResults = append(finalResults, *item)
 		}
 	}
 
-	// Reklam ürünü sonucunu bekle
 	recommendedAd := <-recommendedAdCh
 	close(recommendedAdCh)
 	var recommendedAdResp *EnrichedProduct

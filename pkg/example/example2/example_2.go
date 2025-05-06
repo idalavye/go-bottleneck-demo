@@ -110,7 +110,7 @@ func ChunkedRowBasedSum(matrix [][]int, workerCount int) int {
 	results := make([]int, workerCount)
 	var wg sync.WaitGroup
 
-	for w := 0; w < workerCount; w++ {
+	for w := 0; w < 10; w++ {
 		wg.Add(1)
 		go func(workerIdx int) {
 			defer wg.Done()
@@ -125,6 +125,7 @@ func ChunkedRowBasedSum(matrix [][]int, workerCount int) int {
 					localSum += v
 				}
 			}
+
 			results[workerIdx] = localSum
 		}(w)
 	}

@@ -26,7 +26,7 @@ func generateVector(name string) []float64 {
 	}
 }
 
-func mock_data_gen() {
+func main() {
 	const productCount = 100_000
 
 	fmt.Println("// Bu dosya otomatik olarak scripts/mock_data_gen.go scripti ile üretilmiştir.")
